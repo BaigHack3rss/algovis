@@ -1,6 +1,6 @@
-# algovis
+# AlgoVis
 
-This template should help get you started developing with Vue 3 in Vite.
+An interactive tool to visualize and understand various algorithms through dynamic animations and user-friendly controls.
 
 ## Recommended IDE Setup
 
