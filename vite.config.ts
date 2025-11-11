@@ -15,4 +15,25 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url))
     },
   },
+  build: {
+    chunkSizeWarningLimit: 900,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('vuetify')) {
+              return 'vuetify'
+            }
+            if (id.includes('@mdi')) {
+              return 'mdi'
+            }
+            if (id.includes('vue')) {
+              return 'vue'
+            }
+            return 'vendor'
+          }
+        },
+      },
+    },
+  },
 })
