@@ -1,45 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import {
-  BubbleSort,
-  InsertionSort,
-  MergeSort,
-  QuickSort,
-  SelectionSort,
-  sortingAlgorithmInfoList,
-} from '@/core/sorting'
-import type { SortOperation } from '@/core/interfaces/sortingTypes'
-
-const arr = ref<number[]>([3, 1, 5, 21, 5, 3, 6, 3, 5, 63, 4])
-const active = ref<number[]>([])
-let i = 0
-
-function play(steps: SortOperation[]) {
-  if (i >= steps.length) {
-    return
-  }
-
-  const step = steps[i]
-
-  if (!step) {
-    return
-  }
-
-  arr.value = [...step.snapshot]
-  active.value = [...step.indices]
-  i++
-  setTimeout(play, 500)
-}
-
-function logSteps(steps: SortOperation[]) {
-  steps.forEach((step, index) => {
-    console.log(`Step ${index + 1}:`, {
-      type: step.type,
-      indices: [...step.indices],
-      snapshot: [...step.snapshot],
-    })
-  })
-}
+import Popup from '@/core/components/Popup.vue'
+import { sortingAlgorithmInfoList } from '@/core/sorting'
 </script>
 
 <template>
@@ -69,10 +30,16 @@ function logSteps(steps: SortOperation[]) {
               md="8"
               sm="12"
             >
-              <v-card :title="algorithm.title">
-                <v-card-text class="text-body-2">
+              <v-card :title="algorithm.title" class="text-center">
+                <v-card-text class="text-body-2 text-center">
                   {{ algorithm.info }}
                 </v-card-text>
+                <v-card-actions class="justify-center">
+                  <Popup
+                    :algorithm-name="algorithm.title"
+                    :algorithm-constructor="algorithm.constructor"
+                  />
+                </v-card-actions>
               </v-card>
             </v-col>
           </v-row>
