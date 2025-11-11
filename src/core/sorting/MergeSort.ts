@@ -33,72 +33,64 @@ export class MergeSort {
    */
   public run(arr?: number[]): SortOperation[] {
     const source = arr ?? this.arr
-    const working = [...source]
-    const operations: SortOperation[] = []
+    const a = [...source]
+    const ops: SortOperation[] = []
 
-    const mergeSortRecursive = (data: number[], left: number, right: number) => {
-      if (left >= right) {
-        return
-      }
-
-      const middle = Math.floor((left + right) / 2)
-      mergeSortRecursive(data, left, middle)
-      mergeSortRecursive(data, middle + 1, right)
-      merge(data, left, middle, right)
+    const push = (type: string, indices: number[], meta?: SortOperation['meta']) => {
+      ops.push({ type, indices, snapshot: [...a], meta })
     }
 
-    const merge = (data: number[], left: number, middle: number, right: number) => {
-      const leftLength = middle - left + 1
-      const rightLength = right - middle
-
-      const leftArray = data.slice(left, middle + 1)
-      const rightArray = data.slice(middle + 1, right + 1)
-
+    const merge = (left: number, mid: number, right: number, depth: number) => {
+      const leftSlice = a.slice(left, mid + 1)
+      const rightSlice = a.slice(mid + 1, right + 1)
       let i = 0
       let j = 0
       let k = left
 
-      while (i < leftLength && j < rightLength) {
-        const leftValue = leftArray[i]
-        const rightValue = rightArray[j]
+      while (i < leftSlice.length && j < rightSlice.length) {
+        const leftValue = leftSlice[i]
+        const rightValue = rightSlice[j]
 
-        if (leftValue !== undefined && rightValue !== undefined) {
-          operations.push({
-            type: 'compare',
-            indices: [left + i, middle + 1 + j],
-            snapshot: [...data],
-          })
-        }
+        push('compare', [left + i, mid + 1 + j], {
+          range: [left, right],
+          depth,
+          slices: [
+            [left, mid],
+            [mid + 1, right],
+          ],
+        })
 
         if (leftValue !== undefined && (rightValue === undefined || leftValue <= rightValue)) {
-          data[k] = leftValue
-          operations.push({
-            type: 'merge',
-            indices: [k],
-            snapshot: [...data],
-          })
+          a[k] = leftValue
           i++
         } else if (rightValue !== undefined) {
-          data[k] = rightValue
-          operations.push({
-            type: 'merge',
-            indices: [k],
-            snapshot: [...data],
-          })
+          a[k] = rightValue
           j++
         }
+
+        push('write', [k], {
+          range: [left, right],
+          depth,
+          slices: [
+            [left, mid],
+            [mid + 1, right],
+          ],
+        })
         k++
       }
 
-      while (i < leftLength) {
-        const value = leftArray[i]
+      while (i < leftSlice.length) {
+        const value = leftSlice[i]
 
         if (value !== undefined) {
-          data[k] = value
-          operations.push({
-            type: 'merge',
-            indices: [k],
-            snapshot: [...data],
+          a[k] = value
+          push('write', [k], {
+            range: [left, right],
+            depth,
+            slices: [
+              [left, mid],
+              [mid + 1, right],
+            ],
           })
         }
 
@@ -106,15 +98,18 @@ export class MergeSort {
         k++
       }
 
-      while (j < rightLength) {
-        const value = rightArray[j]
+      while (j < rightSlice.length) {
+        const value = rightSlice[j]
 
         if (value !== undefined) {
-          data[k] = value
-          operations.push({
-            type: 'merge',
-            indices: [k],
-            snapshot: [...data],
+          a[k] = value
+          push('write', [k], {
+            range: [left, right],
+            depth,
+            slices: [
+              [left, mid],
+              [mid + 1, right],
+            ],
           })
         }
 
@@ -123,11 +118,25 @@ export class MergeSort {
       }
     }
 
-    mergeSortRecursive(working, 0, working.length - 1)
+    const sort = (left: number, right: number, depth: number) => {
+      if (left >= right) {
+        ops.push({
+          type: 'base',
+          indices: [left],
+          snapshot: [...a],
+          meta: { range: [left, right], depth, slices: [[left, right]] },
+        })
+        return
+      }
+      const mid = Math.floor((left + right) / 2)
+      sort(left, mid, depth + 1)
+      sort(mid + 1, right, depth + 1)
+      merge(left, mid, right, depth)
+    }
 
-    this.arr = working
-
-    return operations
+    if (a.length > 0) sort(0, a.length - 1, 0)
+    this.arr = a
+    return ops
   }
   public getInfo(): string {
     return this.info

@@ -35,74 +35,114 @@ export class QuickSort {
    */
   public run(arr?: number[]): SortOperation[] {
     const source = arr ?? this.arr
-    const working = [...source]
-    const operations: SortOperation[] = []
+    const a = [...source]
+    const ops: SortOperation[] = []
 
-    const partition = (low: number, high: number): number => {
-      const pivot = working[high]
+    type SortMeta = NonNullable<SortOperation['meta']>
 
+    const normalizeSlices = (candidate?: [number, number][]): [number, number][] => {
+      if (!candidate) return []
+      return candidate.filter(
+        ([l, r]) => Number.isInteger(l) && Number.isInteger(r) && l >= 0 && l <= r,
+      )
+    }
+
+    const buildMeta = (
+      lo: number,
+      hi: number,
+      depth: number,
+      extras?: Partial<SortMeta>,
+    ): SortMeta => {
+      const meta: SortMeta = {
+        range: [lo, hi],
+        depth,
+      }
+
+      const defaultSlices = normalizeSlices(lo <= hi ? [[lo, hi]] : [])
+      if (defaultSlices.length) {
+        meta.slices = defaultSlices
+      }
+
+      if (extras) {
+        if (extras.range) meta.range = extras.range
+        if (typeof extras.depth === 'number') meta.depth = extras.depth
+        if (typeof extras.pivot === 'number') meta.pivot = extras.pivot
+
+        if ('slices' in extras) {
+          const customSlices = normalizeSlices(extras.slices)
+          if (customSlices.length) {
+            meta.slices = customSlices
+          } else if (!defaultSlices.length) {
+            meta.slices = customSlices
+          }
+        }
+      }
+
+      return meta
+    }
+
+    const push = (type: string, indices: number[], meta?: SortOperation['meta']) => {
+      ops.push({ type, indices, snapshot: [...a], meta })
+    }
+
+    const swap = (first: number, second: number, meta: SortOperation['meta']) => {
+      const leftValue = a[first]
+      const rightValue = a[second]
+
+      if (leftValue === undefined || rightValue === undefined) {
+        return
+      }
+
+      a[first] = rightValue
+      a[second] = leftValue
+      push('swap', [first, second], meta)
+    }
+
+    const partition = (lo: number, hi: number, depth: number) => {
+      const pivot = a[hi]
       if (pivot === undefined) {
-        return high
+        return hi
       }
+      let i = lo
+      push('partition-start', [hi], buildMeta(lo, hi, depth, { pivot: hi }))
+      for (let j = lo; j < hi; j++) {
+        push('compare', [j, hi], buildMeta(lo, hi, depth, { pivot: hi }))
+        const candidate = a[j]
 
-      let i = low - 1
-
-      for (let j = low; j < high; j++) {
-        const current = working[j]
-
-        if (current === undefined) {
-          continue
-        }
-
-        operations.push({
-          type: 'compare',
-          indices: [j, high],
-          snapshot: [...working],
-        })
-
-        if (current < pivot) {
+        if (candidate !== undefined && candidate <= pivot) {
+          swap(i, j, buildMeta(lo, hi, depth, { pivot: hi }))
           i++
-
-          const existing = working[i]
-          working[i] = current
-          working[j] = existing === undefined ? current : existing
-
-          operations.push({
-            type: 'swap',
-            indices: [i, j],
-            snapshot: [...working],
-          })
         }
       }
-
-      const swapIndex = i + 1
-      const swapValue = working[swapIndex]
-      working[swapIndex] = pivot
-      working[high] = swapValue === undefined ? pivot : swapValue
-
-      operations.push({
-        type: 'swap',
-        indices: [swapIndex, high],
-        snapshot: [...working],
-      })
-
-      return swapIndex
+      swap(i, hi, buildMeta(lo, hi, depth, { pivot: i }))
+      push(
+        'partition-end',
+        [i],
+        buildMeta(lo, hi, depth, {
+          pivot: i,
+          slices: [
+            [lo, i - 1],
+            [i + 1, hi],
+          ],
+        }),
+      )
+      return i
     }
 
-    const quickSortRecursive = (low: number, high: number) => {
-      if (low < high) {
-        const pi = partition(low, high)
-
-        quickSortRecursive(low, pi - 1)
-        quickSortRecursive(pi + 1, high)
+    const qs = (lo: number, hi: number, depth: number) => {
+      if (lo >= hi) {
+        const indices = lo === hi ? [lo] : []
+        ops.push({ type: 'base', indices, snapshot: [...a], meta: buildMeta(lo, hi, depth) })
+        return
       }
+      const p = partition(lo, hi, depth)
+      qs(lo, p - 1, depth + 1)
+      qs(p + 1, hi, depth + 1)
     }
 
-    quickSortRecursive(0, working.length - 1)
-
-    this.arr = working
-
-    return operations
+    if (a.length > 0) qs(0, a.length - 1, 0)
+    this.arr = a
+    return ops
   }
 
   public getInfo(): string {

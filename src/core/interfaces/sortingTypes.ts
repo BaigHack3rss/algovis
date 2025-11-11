@@ -9,7 +9,14 @@ export type SortingAction = 'compare' | 'swap' | 'insert' | 'merge'
  * @interface SortOperation
  */
 export interface SortOperation {
-  type: SortingAction
-  indices: [number, number] | [number]
+  type: string
+  indices: number[]
   snapshot: number[]
+  meta?: {
+    range?: [number, number]
+    pivot?: number
+    depth?: number
+    // one or more subarray slices to visualize
+    slices?: [number, number][]
+  }
 }
