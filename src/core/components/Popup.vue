@@ -10,8 +10,15 @@ const props = defineProps<{
 
 const open = ref(false)
 
+const ARRAY_LENGTH = 8
+const MIN_VALUE = 5
+const MAX_VALUE = 100
+
+const generateRandomArray = (length: number) =>
+  Array.from({ length }, () => Math.floor(Math.random() * (MAX_VALUE - MIN_VALUE + 1)) + MIN_VALUE)
+
 // base input, current view, active indices
-const base = ref<number[]>([5, 8, 96, 45, 9885, 456, 23, 48])
+const base = ref<number[]>(generateRandomArray(ARRAY_LENGTH))
 const arr = ref<number[]>([])
 const active = ref<number[]>([])
 const currentOperation = ref<SortOperation | null>(null)
