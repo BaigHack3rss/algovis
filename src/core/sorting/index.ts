@@ -1,9 +1,4 @@
 import type { SortOperation } from '@/core/interfaces/sortingTypes'
-import { BubbleSort } from '@/core/sorting/BubbleSort'
-import { InsertionSort } from '@/core/sorting/InsertionSort'
-import { MergeSort } from '@/core/sorting/MergeSort'
-import { QuickSort } from '@/core/sorting/QuickSort'
-import { SelectionSort } from '@/core/sorting/SelectionSort'
 
 export type SortingAlgorithmKey = 'bubble' | 'insertion' | 'merge' | 'quick' | 'selection'
 
@@ -14,54 +9,61 @@ export interface SortingAlgorithmInstance {
 
 export type SortingAlgorithmConstructor = new (arr: number[]) => SortingAlgorithmInstance
 
-export const sortingAlgorithms: Record<SortingAlgorithmKey, SortingAlgorithmConstructor> = {
-  bubble: BubbleSort,
-  insertion: InsertionSort,
-  merge: MergeSort,
-  quick: QuickSort,
-  selection: SelectionSort,
-}
+export type SortingAlgorithmLoader = () => Promise<SortingAlgorithmConstructor>
 
 export interface SortingAlgorithmInfo {
   key: SortingAlgorithmKey
   title: string
   info: string
-  constructor: SortingAlgorithmConstructor
+  loader: SortingAlgorithmLoader
 }
 
-export const sortingAlgorithmInfoMap: Record<SortingAlgorithmKey, SortingAlgorithmInfo> = {
-  bubble: {
+const algorithmInfo: SortingAlgorithmInfo[] = [
+  {
     key: 'bubble',
     title: 'Bubble Sort',
-    info: new BubbleSort([]).getInfo(),
-    constructor: BubbleSort,
+    info: `Repeatedly swaps adjacent elements if they are in the wrong order.
+Time: O(n^2) | Space: O(1)`,
+    loader: async () => (await import('./BubbleSort')).BubbleSort,
   },
-  insertion: {
+  {
     key: 'insertion',
     title: 'Insertion Sort',
-    info: new InsertionSort([]).getInfo(),
-    constructor: InsertionSort,
+    info: `Builds the final sorted array one item at a time by comparing and inserting elements.
+Time: O(n^2) | Space: O(1)`,
+    loader: async () => (await import('./InsertionSort')).InsertionSort,
   },
-  merge: {
+  {
     key: 'merge',
     title: 'Merge Sort',
-    info: new MergeSort([]).getInfo(),
-    constructor: MergeSort,
+    info: `Divides the array into halves, sorts them and merges them back together.
+Time: O(n log n) | Space: O(n)`,
+    loader: async () => (await import('./MergeSort')).MergeSort,
   },
-  quick: {
+  {
     key: 'quick',
     title: 'Quick Sort',
-    info: new QuickSort([]).getInfo(),
-    constructor: QuickSort,
+    info: `Divides the array into smaller sub-arrays around a pivot, sorting them recursively.
+Time: O(n log n) | Space: O(log n)`,
+    loader: async () => (await import('./QuickSort')).QuickSort,
   },
-  selection: {
+  {
     key: 'selection',
     title: 'Selection Sort',
-    info: new SelectionSort([]).getInfo(),
-    constructor: SelectionSort,
+    info: `Selects the smallest (or largest) element from the unsorted portion and moves it to the sorted portion.
+Time: O(n^2) | Space: O(1)`,
+    loader: async () => (await import('./SelectionSort')).SelectionSort,
   },
-}
+]
 
-export const sortingAlgorithmInfoList = Object.values(sortingAlgorithmInfoMap)
+export const sortingAlgorithmInfoMap = algorithmInfo.reduce<
+  Record<SortingAlgorithmKey, SortingAlgorithmInfo>
+>(
+  (acc, info) => {
+    acc[info.key] = info
+    return acc
+  },
+  {} as Record<SortingAlgorithmKey, SortingAlgorithmInfo>,
+)
 
-export { BubbleSort, InsertionSort, MergeSort, QuickSort, SelectionSort }
+export const sortingAlgorithmInfoList = algorithmInfo

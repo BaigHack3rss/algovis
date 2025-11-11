@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import Popup from '@/core/components/Popup.vue'
+import { defineAsyncComponent } from 'vue'
 import { sortingAlgorithmInfoList } from '@/core/sorting'
+
+const Popup = defineAsyncComponent(() => import('@/core/components/Popup.vue'))
 </script>
 
 <template>
@@ -35,10 +37,7 @@ import { sortingAlgorithmInfoList } from '@/core/sorting'
                   {{ algorithm.info }}
                 </v-card-text>
                 <v-card-actions class="justify-center">
-                  <Popup
-                    :algorithm-name="algorithm.title"
-                    :algorithm-constructor="algorithm.constructor"
-                  />
+                  <Popup :algorithm-name="algorithm.title" :algorithm-loader="algorithm.loader" />
                 </v-card-actions>
               </v-card>
             </v-col>
