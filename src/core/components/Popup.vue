@@ -3,6 +3,10 @@ import { ref, watch, computed } from 'vue'
 import type { SortOperation } from '@/core/interfaces/sortingTypes'
 import type { SortingAlgorithmConstructor } from '@/core/sorting'
 
+defineOptions({
+  name: 'AlgorithmPopup',
+})
+
 const props = defineProps<{
   algorithmName: string
   algorithmConstructor: SortingAlgorithmConstructor
@@ -22,6 +26,7 @@ const base = ref<number[]>(generateRandomArray(ARRAY_LENGTH))
 const arr = ref<number[]>([])
 const active = ref<number[]>([])
 const currentOperation = ref<SortOperation | null>(null)
+const currentMeta = computed<SortOperation['meta'] | undefined>(() => currentOperation.value?.meta)
 
 // recorded steps and pointer
 const steps = ref<SortOperation[]>([])
@@ -33,23 +38,24 @@ const finished = computed(() => i.value >= steps.value.length)
 
 // Derived helpers for D&C viz (reads optional step.meta = { range?: [l,r], pivot?: number, depth?: number })
 const activeRange = computed<readonly [number, number] | null>(() => {
-  const meta = (currentOperation.value as any)?.meta
+  const meta = currentMeta.value
   return meta?.range ?? null
 })
 const pivotIndex = computed<number | null>(() => {
-  const meta = (currentOperation.value as any)?.meta
-  return Number.isInteger(meta?.pivot) ? meta.pivot : null
+  const pivot = currentMeta.value?.pivot
+  return Number.isInteger(pivot) ? (pivot as number) : null
 })
 const rangeArray = computed(() => (arr.value.length ? arr.value : base.value))
 const currentDepth = computed<number | null>(() => {
-  const meta = (currentOperation.value as any)?.meta
-  return Number.isInteger(meta?.depth) ? meta.depth : null
+  const depth = currentMeta.value?.depth
+  return Number.isInteger(depth) ? (depth as number) : null
 })
 const subarrays = computed(() => {
-  const meta = (currentOperation.value as any)?.meta
+  const meta = currentMeta.value
+  const slices = meta?.slices
   const baseSlices: [number, number][] =
-    Array.isArray(meta?.slices) && meta.slices.length
-      ? meta.slices
+    Array.isArray(slices) && slices.length
+      ? slices
       : meta?.range
         ? [meta.range]
         : []
@@ -94,7 +100,7 @@ function seek(next: number) {
   // Apply the snapshot of the selected step (i points to "next" step, show i-1)
   const step = steps.value[clamped - 1]
   if (!step) return
-  currentOperation.value = step as any
+  currentOperation.value = step
   arr.value = [...step.snapshot]
   active.value = [...step.indices]
 }
