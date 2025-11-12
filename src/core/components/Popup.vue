@@ -306,6 +306,17 @@ async function retryLoad() {
   await buildSteps()
 }
 
+function randomizeArray() {
+  pause()
+  base.value = generateRandomArray(ARRAY_LENGTH)
+  arr.value = [...base.value]
+  active.value = []
+  steps.value = []
+  currentOperation.value = null
+  i.value = 0
+  void buildSteps()
+}
+
 onBeforeUnmount(() => {
   if (timer) {
     clearTimeout(timer)
@@ -415,9 +426,20 @@ onBeforeUnmount(() => {
                 <span class="text-subtitle-2">Array State</span>
               </v-col>
               <v-col cols="auto">
-                <span class="text-caption text-medium-emphasis"
-                  >Highlighted indices are active</span
-                >
+                <div class="array-controls">
+                  <span class="text-caption text-medium-emphasis">
+                    Highlighted indices are active
+                  </span>
+                  <v-btn
+                    size="x-small"
+                    variant="tonal"
+                    color="secondary"
+                    :disabled="loadingAlgorithm"
+                    @click="randomizeArray"
+                  >
+                    Randomize
+                  </v-btn>
+                </div>
               </v-col>
             </v-row>
             <v-row class="array-grid" justify="center" dense>
@@ -777,5 +799,13 @@ onBeforeUnmount(() => {
   gap: 16px;
   flex-wrap: wrap;
   justify-content: center;
+}
+
+.array-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 </style>
