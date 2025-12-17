@@ -1,6 +1,6 @@
 import type { SortOperation } from '@/core/interfaces/sortingTypes'
 
-export type SortingAlgorithmKey = 'bubble' | 'insertion' | 'merge' | 'quick' | 'selection'
+export type SortingAlgorithmKey = 'bubble' | 'insertion' | 'merge' | 'quick' | 'selection' | 'heap'
 
 export interface SortingAlgorithmInstance {
   sort(arr?: number[]): number[]
@@ -54,6 +54,14 @@ const algorithmInfo: SortingAlgorithmInfo[] = [
     timeComplexity: 'O(n \\log n)',
     spaceComplexity: 'O(\\log n)',
     loader: async () => (await import('./QuickSort')).QuickSort,
+  },
+  {
+    key: 'heap',
+    title: 'Heap Sort',
+    description: 'Builds a binary heap and repeatedly extracts the maximum element.',
+    timeComplexity: 'O(n \\log n)',
+    spaceComplexity: 'O(1)',
+    loader: async () => (await import('./HeapSort')).HeapSort,
   },
   {
     key: 'selection',

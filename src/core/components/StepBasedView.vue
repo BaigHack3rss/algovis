@@ -25,35 +25,32 @@ const props = defineProps<{
   showRangeSection: boolean
   subarrays: SubarraySlice[]
   pivotIndex: number | null
-  braceActionText: string
-  braceActionStyle: CSSProperties
   rangeGridStyle: CSSProperties
   rangeEntries: RangeEntry[]
   activeRange: readonly [number, number] | null
+  inactiveRanges: readonly [number, number][]
   operationClasses: OperationClassMap
   arr: number[]
   activeIndices: number[]
-  loadingAlgorithm: boolean
-  stepsLength: number
-  currentStepIndex: number
-  playing: boolean
-  finished: boolean
-  speedDisplay: string
-  canDecreaseSpeed: boolean
-  canIncreaseSpeed: boolean
-}>()
-
-const emit = defineEmits<{
-  (event: 'randomize'): void
-  (event: 'seek', value: number): void
-  (event: 'play'): void
-  (event: 'pause'): void
-  (event: 'increase-speed'): void
-  (event: 'decrease-speed'): void
 }>()
 
 const hasSubarrays = computed(() => props.subarrays.length > 0)
 const rangeLength = computed(() => props.rangeEntries.length)
+const hasInactiveRanges = computed(() => props.inactiveRanges.length > 0)
+
+const sortedLength = computed(() =>
+  props.inactiveRanges.reduce((total, [start, end]) => {
+    if (!Number.isInteger(start) || !Number.isInteger(end)) return total
+    return total + Math.max(0, end - start + 1)
+  }, 0),
+)
+
+const heapLength = computed(() => {
+  const range = props.activeRange
+  if (!range) return null
+  const length = range[1] - range[0] + 1
+  return length > 0 ? length : null
+})
 
 function isInActiveRange(index: number): boolean {
   const range = props.activeRange
@@ -62,6 +59,10 @@ function isInActiveRange(index: number): boolean {
 
 function isPivotIndex(index: number): boolean {
   return props.pivotIndex === index
+}
+
+function isInInactiveRange(index: number): boolean {
+  return props.inactiveRanges.some(([start, end]) => index >= start && index <= end)
 }
 
 function getBraceGridStyle(slice: SubarraySlice) {
@@ -81,36 +82,10 @@ function getBraceLatex(slice: SubarraySlice) {
   return `\\(\\overbrace{${content}}^{\\text{${slice.label}}}\\)`
 }
 
-function handleRandomize() {
-  emit('randomize')
-}
-
-function handleSeek(value: number) {
-  emit('seek', value)
-}
-
-function handlePlay() {
-  emit('play')
-}
-
-function handlePause() {
-  emit('pause')
-}
-
-function handleIncreaseSpeed() {
-  emit('increase-speed')
-}
-
-function handleDecreaseSpeed() {
-  emit('decrease-speed')
-}
 </script>
 
 <template>
   <div class="step-view">
-    <div v-if="braceActionText" class="brace-context text-caption">
-      <strong class="brace-context__label" :style="braceActionStyle" v-html="braceActionText"></strong>
-    </div>
     <v-container v-if="showRangeSection" class="viz-section" fluid tag="section">
       <v-row
         class="viz-section__header viz-section__header--stacked"
@@ -140,6 +115,18 @@ function handleDecreaseSpeed() {
             Pivot @ {{ pivotIndex }}
           </v-chip>
         </v-col>
+        <v-col v-if="hasInactiveRanges" cols="12" class="heap-legend" role="status">
+          <div class="heap-legend__item">
+            <span class="heap-legend__swatch heap-legend__swatch--heap" aria-hidden="true"></span>
+            <span>Heap</span>
+            <span v-if="heapLength !== null" class="heap-legend__metric">{{ heapLength }}</span>
+          </div>
+          <div class="heap-legend__item">
+            <span class="heap-legend__swatch heap-legend__swatch--sorted" aria-hidden="true"></span>
+            <span>Sorted tail</span>
+            <span class="heap-legend__metric">{{ sortedLength }}</span>
+          </div>
+        </v-col>
       </v-row>
       <div class="range-array">
         <div class="range-grid" :style="rangeGridStyle">
@@ -151,6 +138,7 @@ function handleDecreaseSpeed() {
             <div
               :class="[
                 'range-cell',
+                isInInactiveRange(entry.index) && 'range-cell--inactive',
                 isInActiveRange(entry.index) && 'range-cell--active',
                 isInActiveRange(entry.index) ? operationClasses.range : null,
                 isPivotIndex(entry.index) && 'range-cell--pivot',
@@ -209,6 +197,9 @@ function handleDecreaseSpeed() {
             :class="[
               activeIndices.includes(idx) ? 'array-cell--active' : 'array-cell--idle',
               activeIndices.includes(idx) ? operationClasses.array : null,
+              !activeIndices.includes(idx) && isInInactiveRange(idx)
+                ? 'array-cell--inactive'
+                : null,
             ]"
           >
             {{ val }}
@@ -217,93 +208,6 @@ function handleDecreaseSpeed() {
       </v-row>
     </v-container>
 
-    <v-container class="viz-section" fluid tag="section">
-      <v-row
-        class="viz-section__header viz-section__header--stacked"
-        align="center"
-        justify="center"
-        no-gutters
-      >
-        <v-col cols="12">
-          <div class="section-title">
-            <v-tooltip text="Playback controls" location="top">
-              <template #activator="{ props }">
-                <v-icon
-                  v-bind="props"
-                  icon="mdi-information-outline"
-                  size="16"
-                  class="section-title__icon"
-                  aria-label="Playback info"
-                  tabindex="0"
-                />
-              </template>
-            </v-tooltip>
-            <span class="text-subtitle-2">Controls</span>
-          </div>
-        </v-col>
-      </v-row>
-      <v-row class="playback-row mt-4" align="center" justify="center" no-gutters>
-        <v-col cols="12">
-          <v-slider
-            :min="0"
-            :max="stepsLength"
-            step="1"
-            :model-value="currentStepIndex"
-            @update:model-value="handleSeek"
-            thumb-label
-            :disabled="!stepsLength"
-          />
-        </v-col>
-        <v-col cols="12" sm="auto" class="playback-actions">
-          <div class="playback-primary">
-            <v-btn
-              v-if="!playing"
-              color="primary"
-              @click="handlePlay"
-              :disabled="!stepsLength"
-              :icon="finished ? 'mdi-replay' : 'mdi-play'"
-              :aria-label="finished ? 'Replay animation' : 'Play animation'"
-            />
-            <v-btn
-              v-else
-              color="warning"
-              @click="handlePause"
-              icon="mdi-pause"
-              aria-label="Pause animation"
-            />
-            <v-btn
-              icon="mdi-shuffle"
-              variant="tonal"
-              color="secondary"
-              @click="handleRandomize"
-              :disabled="loadingAlgorithm"
-              aria-label="Shuffle array"
-            />
-          </div>
-          <div class="playback-controls">
-            <v-btn
-              icon="mdi-rewind"
-              variant="tonal"
-              color="secondary"
-              @click="handleDecreaseSpeed"
-              :disabled="!stepsLength || !canDecreaseSpeed"
-              aria-label="Slow down playback"
-            />
-            <v-chip size="small" variant="tonal" color="secondary" class="playback-speed">
-              {{ speedDisplay }}
-            </v-chip>
-            <v-btn
-              icon="mdi-fast-forward"
-              variant="tonal"
-              color="secondary"
-              @click="handleIncreaseSpeed"
-              :disabled="!stepsLength || !canIncreaseSpeed"
-              aria-label="Speed up playback"
-            />
-          </div>
-        </v-col>
-      </v-row>
-    </v-container>
   </div>
 </template>
 
@@ -333,18 +237,6 @@ function handleDecreaseSpeed() {
   padding: 10px;
   background: rgba(255, 255, 255, 0.04);
   width: 100%;
-}
-
-.brace-context {
-  margin-bottom: 6px;
-  text-align: center;
-  color: rgb(var(--v-theme-on-surface));
-  opacity: 0.85;
-}
-
-.brace-context__label {
-  font-size: 0.95rem;
-  font-weight: 700;
 }
 
 .range-grid {
@@ -450,6 +342,11 @@ function handleDecreaseSpeed() {
   outline-color: rgb(var(--v-theme-accent));
 }
 
+.range-cell--inactive {
+  background: rgba(255, 255, 255, 0.04);
+  opacity: 0.75;
+}
+
 .section-title {
   display: inline-flex;
   align-items: center;
@@ -465,6 +362,42 @@ function handleDecreaseSpeed() {
 .title-chip {
   display: flex;
   justify-content: center;
+}
+
+.heap-legend {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.heap-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 0.75rem;
+}
+
+.heap-legend__swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.heap-legend__swatch--heap {
+  background: rgba(var(--v-theme-primary), 0.6);
+}
+
+.heap-legend__swatch--sorted {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.heap-legend__metric {
+  font-weight: 600;
 }
 
 .array-cell {
@@ -516,6 +449,11 @@ function handleDecreaseSpeed() {
 .array-cell--active.array-cell--op-base {
   background: rgba(var(--v-theme-surface-variant), 0.3);
   color: rgb(var(--v-theme-on-surface-variant));
+}
+
+.array-cell--inactive {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .array-cell--active.array-cell--op-default {
@@ -579,32 +517,4 @@ function handleDecreaseSpeed() {
   --brace-color: rgb(var(--v-theme-accent));
 }
 
-.playback-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.playback-speed {
-  justify-content: center;
-  min-width: 52px;
-}
-
-.playback-actions {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-  justify-content: center;
-}
-
-.playback-primary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.playback-row {
-  row-gap: 16px;
-}
 </style>

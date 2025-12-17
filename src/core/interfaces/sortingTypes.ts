@@ -18,5 +18,7 @@ export interface SortOperation {
     depth?: number
     // one or more subarray slices to visualize
     slices?: [number, number][]
+    // regions that are no longer part of the active work (e.g., sorted tail)
+    inactiveSlices?: [number, number][]
   }
 }

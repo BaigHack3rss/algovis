@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { CSSProperties } from 'vue'
 
 const TONE_COLOR_VAR: Record<string, string> = {
   compare: '--v-theme-info',
@@ -17,28 +16,28 @@ const props = defineProps<{
   activeIndices: number[]
   pivotIndex: number | null
   operationTone: string | null
-  braceActionText: string
-  braceActionStyle: CSSProperties
-  loadingAlgorithm: boolean
-  stepsLength: number
-  currentStepIndex: number
-  playing: boolean
-  finished: boolean
-  speedDisplay: string
-  canDecreaseSpeed: boolean
-  canIncreaseSpeed: boolean
-}>()
-
-const emit = defineEmits<{
-  (event: 'randomize'): void
-  (event: 'seek', value: number): void
-  (event: 'play'): void
-  (event: 'pause'): void
-  (event: 'increase-speed'): void
-  (event: 'decrease-speed'): void
+  inactiveRanges: readonly [number, number][]
 }>()
 
 const activeSet = computed(() => new Set(props.activeIndices))
+
+const normalizedInactiveRanges = computed(() =>
+  props.inactiveRanges
+    .map(([start, end]) => {
+      if (!Number.isInteger(start) || !Number.isInteger(end)) return null
+      if (end < start) return null
+      return [start, end] as [number, number]
+    })
+    .filter((range): range is [number, number] => !!range),
+)
+
+const hasInactiveRanges = computed(() => normalizedInactiveRanges.value.length > 0)
+
+const inactiveCount = computed(() =>
+  normalizedInactiveRanges.value.reduce((total, [start, end]) => total + (end - start + 1), 0),
+)
+
+const heapCount = computed(() => Math.max(props.arr.length - inactiveCount.value, 0))
 
 const maxValue = computed(() => {
   if (!props.arr.length) return 0
@@ -56,55 +55,38 @@ const barData = computed(() => {
   const max = maxValue.value || 1
   return props.arr.map((value, index) => {
     const normalized = Math.max((value / max) * 100, value > 0 ? 6 : 0)
+    const isInactive = normalizedInactiveRanges.value.some(
+      ([start, end]) => index >= start && index <= end,
+    )
     return {
       value,
       index,
       height: normalized,
       isActive: activeSet.value.has(index),
       isPivot: props.pivotIndex === index,
+      isInactive,
     }
   })
 })
 
 function getBarFillStyle(entry: (typeof barData.value)[number]) {
-  const baseAlpha = entry.isActive ? 0.9 : 0.35
+  const baseAlpha = entry.isInactive ? 0.18 : entry.isActive ? 0.9 : 0.35
   const colorVar = toneColorVar.value
+  const backgroundColor = `rgba(var(${colorVar}), ${baseAlpha})`
+  const backgroundImage = entry.isInactive
+    ? `repeating-linear-gradient(135deg, rgba(var(${colorVar}), 0.18) 0px, rgba(var(${colorVar}), 0.18) 6px, transparent 6px, transparent 12px)`
+    : undefined
   return {
     height: `${entry.height}%`,
-    backgroundColor: `rgba(var(${colorVar}), ${baseAlpha})`,
+    backgroundColor,
+    backgroundImage,
   }
 }
 
-function handleRandomize() {
-  emit('randomize')
-}
-
-function handleSeek(value: number) {
-  emit('seek', value)
-}
-
-function handlePlay() {
-  emit('play')
-}
-
-function handlePause() {
-  emit('pause')
-}
-
-function handleIncreaseSpeed() {
-  emit('increase-speed')
-}
-
-function handleDecreaseSpeed() {
-  emit('decrease-speed')
-}
 </script>
 
 <template>
   <div class="bar-view">
-    <div v-if="braceActionText" class="brace-context text-caption">
-      <strong class="brace-context__label" :style="braceActionStyle" v-html="braceActionText"></strong>
-    </div>
     <v-container class="viz-section" fluid tag="section">
       <v-row
         class="viz-section__header viz-section__header--stacked"
@@ -145,6 +127,7 @@ function handleDecreaseSpeed() {
             :class="{
               'chart-bar--active': bar.isActive,
               'chart-bar--pivot': bar.isPivot,
+              'chart-bar--inactive': bar.isInactive,
             }"
             :aria-label="`Value ${bar.value} at index ${bar.index}`"
           >
@@ -159,96 +142,20 @@ function handleDecreaseSpeed() {
           No data available. Randomize to generate a new array.
         </v-alert>
       </div>
+      <div v-if="hasInactiveRanges" class="bar-chart__legend" role="status">
+        <div class="bar-chart__legend-item">
+          <span class="bar-chart__legend-swatch bar-chart__legend-swatch--heap" aria-hidden="true"></span>
+          <span>Heap</span>
+          <span class="bar-chart__legend-metric">{{ heapCount }}</span>
+        </div>
+        <div class="bar-chart__legend-item">
+          <span class="bar-chart__legend-swatch bar-chart__legend-swatch--sorted" aria-hidden="true"></span>
+          <span>Sorted tail</span>
+          <span class="bar-chart__legend-metric">{{ inactiveCount }}</span>
+        </div>
+      </div>
     </v-container>
 
-    <v-container class="viz-section" fluid tag="section">
-      <v-row
-        class="viz-section__header viz-section__header--stacked"
-        align="center"
-        justify="center"
-        no-gutters
-      >
-        <v-col cols="12">
-          <div class="section-title">
-            <v-tooltip text="Playback controls" location="top">
-              <template #activator="{ props }">
-                <v-icon
-                  v-bind="props"
-                  icon="mdi-information-outline"
-                  size="16"
-                  class="section-title__icon"
-                  aria-label="Controls info"
-                  tabindex="0"
-                />
-              </template>
-            </v-tooltip>
-            <span class="text-subtitle-2">Controls</span>
-          </div>
-        </v-col>
-      </v-row>
-
-      <v-row class="playback-row mt-4" align="center" justify="center" no-gutters>
-        <v-col cols="12">
-          <v-slider
-            :min="0"
-            :max="stepsLength"
-            step="1"
-            :model-value="currentStepIndex"
-            @update:model-value="handleSeek"
-            thumb-label
-            :disabled="!stepsLength"
-          />
-        </v-col>
-        <v-col cols="12" sm="auto" class="playback-actions">
-          <div class="playback-primary">
-            <v-btn
-              v-if="!playing"
-              color="primary"
-              @click="handlePlay"
-              :disabled="!stepsLength"
-              :icon="finished ? 'mdi-replay' : 'mdi-play'"
-              :aria-label="finished ? 'Replay animation' : 'Play animation'"
-            />
-            <v-btn
-              v-else
-              color="warning"
-              @click="handlePause"
-              icon="mdi-pause"
-              aria-label="Pause animation"
-            />
-            <v-btn
-              icon="mdi-shuffle"
-              variant="tonal"
-              color="secondary"
-              @click="handleRandomize"
-              :disabled="loadingAlgorithm"
-              aria-label="Shuffle array"
-            />
-          </div>
-          <div class="playback-controls">
-            <v-btn
-              icon="mdi-rewind"
-              variant="tonal"
-              color="secondary"
-              @click="handleDecreaseSpeed"
-              :disabled="!stepsLength || !canDecreaseSpeed"
-              aria-label="Slow down playback"
-            />
-            <v-chip size="small" variant="tonal" color="secondary" class="playback-speed">
-              {{ speedDisplay }}
-            </v-chip>
-            <v-btn
-              icon="mdi-fast-forward"
-              variant="tonal"
-              color="secondary"
-              @click="handleIncreaseSpeed"
-              :disabled="!stepsLength || !canIncreaseSpeed"
-              aria-label="Speed up playback"
-            />
-          </div>
-        </v-col>
-      </v-row>
-    </v-container>
   </div>
 </template>
 
@@ -288,18 +195,6 @@ function handleDecreaseSpeed() {
 .title-chip {
   display: flex;
   justify-content: center;
-}
-
-.brace-context {
-  margin-bottom: 6px;
-  text-align: center;
-  color: rgb(var(--v-theme-on-surface));
-  opacity: 0.85;
-}
-
-.brace-context__label {
-  font-size: 0.95rem;
-  font-weight: 700;
 }
 
 .bar-chart {
@@ -369,33 +264,49 @@ function handleDecreaseSpeed() {
   filter: saturate(1.2);
 }
 
-.playback-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.chart-bar--inactive .chart-bar__value,
+.chart-bar--inactive .chart-bar__index {
+  opacity: 0.55;
 }
 
-.playback-speed {
+.chart-bar--inactive .chart-bar__fill-wrapper {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.bar-chart__legend {
+  display: flex;
   justify-content: center;
-  min-width: 52px;
-}
-
-.playback-actions {
-  display: flex;
-  align-items: center;
-  gap: 16px;
+  gap: 12px;
   flex-wrap: wrap;
-  justify-content: center;
+  margin-top: 12px;
 }
 
-.playback-primary {
-  display: flex;
+.bar-chart__legend-item {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 0.75rem;
 }
 
-.playback-row {
-  row-gap: 16px;
+.bar-chart__legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.bar-chart__legend-swatch--heap {
+  background: rgba(var(--v-theme-primary), 0.6);
+}
+
+.bar-chart__legend-swatch--sorted {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.bar-chart__legend-metric {
+  font-weight: 600;
 }
 
 @media (max-width: 600px) {
@@ -405,10 +316,6 @@ function handleDecreaseSpeed() {
 
   .chart-bar__fill-wrapper {
     height: 180px;
-  }
-
-  .playback-actions {
-    justify-content: space-between;
   }
 }
 

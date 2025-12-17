@@ -142,14 +142,39 @@ const pivotIndex = computed<number | null>(() => {
 
 const rangeArray = computed(() => (arr.value.length ? arr.value : base.value))
 
+const inactiveRanges = computed<readonly [number, number][]>(() => {
+  const meta = currentMeta.value
+  const values = rangeArray.value
+  if (!values.length || !meta?.inactiveSlices?.length) return []
+  const maxIndex = values.length - 1
+  return meta.inactiveSlices
+    .map(([l, r]) => {
+      if (!Number.isInteger(l) || !Number.isInteger(r)) return null
+      const start = Math.max(0, Math.min(l, maxIndex))
+      const end = Math.max(start, Math.min(r, maxIndex))
+      if (end < start) return null
+      return [start, end] as [number, number]
+    })
+    .filter((range): range is [number, number] => !!range)
+})
+
 const displayBounds = computed<readonly [number, number] | null>(() => {
   const values = rangeArray.value
   if (!values.length) return null
+
+  const bounds: Array<readonly [number, number]> = []
   const range = activeRange.value
-  if (!range) return [0, values.length - 1]
-  const start = Math.max(0, Math.min(range[0], values.length - 1))
-  const end = Math.max(start, Math.min(range[1], values.length - 1))
-  return [start, end]
+  if (range) bounds.push(range)
+  if (inactiveRanges.value.length) bounds.push(...inactiveRanges.value)
+
+  if (!bounds.length) return [0, values.length - 1]
+
+  const minStart = Math.min(...bounds.map(([start]) => start))
+  const maxEnd = Math.max(...bounds.map(([, end]) => end))
+
+  const clampedStart = Math.max(0, Math.min(minStart, values.length - 1))
+  const clampedEnd = Math.max(clampedStart, Math.min(maxEnd, values.length - 1))
+  return [clampedStart, clampedEnd]
 })
 
 const rangeEntries = computed(() => {
@@ -307,7 +332,11 @@ const braceActionText = computed(() => {
 
 const showRangeSection = computed(() => {
   if (!rangeArray.value.length) return false
-  return activeRange.value !== null || pivotIndex.value !== null
+  return (
+    activeRange.value !== null ||
+    pivotIndex.value !== null ||
+    inactiveRanges.value.length > 0
+  )
 })
 
 const braceActionStyle = computed<CSSProperties>(() => {
@@ -505,8 +534,8 @@ onBeforeUnmount(() => {
       <v-btn v-bind="props" color="success" variant="flat"> Visualize {{ algorithmName }} </v-btn>
     </template>
 
-    <v-card>
-      <v-card-title class="py-4 py-sm-4 px-4 px-sm-6">
+    <v-card class="px-4">
+      <v-card-title class="py-4">
         <v-row no-gutters>
           <v-col cols="12">
             <v-row no-gutters align="center" justify="space-between">
@@ -554,6 +583,10 @@ onBeforeUnmount(() => {
             <v-tab value="step">Step Based View</v-tab>
           </v-tabs>
 
+          <div v-if="braceActionText" class="brace-context text-caption mt-5">
+            <strong class="brace-context__label" :style="braceActionStyle" v-html="braceActionText"></strong>
+          </div>
+
           <v-window v-model="activeView" class="mt-4">
             <v-window-item value="bar">
               <BarChartView
@@ -561,22 +594,7 @@ onBeforeUnmount(() => {
                 :active-indices="active"
                 :pivot-index="pivotIndex"
                 :operation-tone="operationTone"
-                :brace-action-text="braceActionText"
-                :brace-action-style="braceActionStyle"
-                :loading-algorithm="loadingAlgorithm"
-                :steps-length="steps.length"
-                :current-step-index="i"
-                :playing="playing"
-                :finished="finished"
-                :speed-display="speedDisplay"
-                :can-decrease-speed="canDecreaseSpeed"
-                :can-increase-speed="canIncreaseSpeed"
-                @randomize="randomizeArray"
-                @seek="seek"
-                @play="play"
-                @pause="pause"
-                @increase-speed="increaseSpeed"
-                @decrease-speed="decreaseSpeed"
+                :inactive-ranges="inactiveRanges"
               />
             </v-window-item>
             <v-window-item value="step">
@@ -584,31 +602,104 @@ onBeforeUnmount(() => {
                 :show-range-section="showRangeSection"
                 :subarrays="subarrays"
                 :pivot-index="pivotIndex"
-                :brace-action-text="braceActionText"
-                :brace-action-style="braceActionStyle"
                 :range-grid-style="rangeGridStyle"
                 :range-entries="rangeEntries"
                 :active-range="activeRange"
+                :inactive-ranges="inactiveRanges"
                 :operation-classes="operationClasses"
                 :arr="arr"
                 :active-indices="active"
-                :loading-algorithm="loadingAlgorithm"
-                :steps-length="steps.length"
-                :current-step-index="i"
-                :playing="playing"
-                :finished="finished"
-                :speed-display="speedDisplay"
-                :can-decrease-speed="canDecreaseSpeed"
-                :can-increase-speed="canIncreaseSpeed"
-                @randomize="randomizeArray"
-                @seek="seek"
-                @play="play"
-                @pause="pause"
-                @increase-speed="increaseSpeed"
-                @decrease-speed="decreaseSpeed"
               />
             </v-window-item>
           </v-window>
+
+          <v-container class="viz-section" fluid tag="section">
+            <v-row
+              class="viz-section__header viz-section__header--stacked"
+              align="center"
+              justify="center"
+              no-gutters
+            >
+              <v-col cols="12">
+                <div class="section-title">
+                  <v-tooltip text="Playback controls" location="top">
+                    <template #activator="{ props }">
+                      <v-icon
+                        v-bind="props"
+                        icon="mdi-information-outline"
+                        size="16"
+                        class="section-title__icon"
+                        aria-label="Playback info"
+                        tabindex="0"
+                      />
+                    </template>
+                  </v-tooltip>
+                  <span class="text-subtitle-2">Controls</span>
+                </div>
+              </v-col>
+            </v-row>
+            <v-row class="playback-row mt-4" align="center" justify="center" no-gutters>
+              <v-col cols="12">
+                <v-slider
+                  :min="0"
+                  :max="steps.length"
+                  step="1"
+                  :model-value="i"
+                  @update:model-value="seek"
+                  thumb-label
+                  :disabled="!steps.length"
+                />
+              </v-col>
+              <v-col cols="12" sm="auto" class="playback-actions">
+                <div class="playback-primary">
+                  <v-btn
+                    v-if="!playing"
+                    color="primary"
+                    @click="play"
+                    :disabled="!steps.length"
+                    :icon="finished ? 'mdi-replay' : 'mdi-play'"
+                    :aria-label="finished ? 'Replay animation' : 'Play animation'"
+                  />
+                  <v-btn
+                    v-else
+                    color="warning"
+                    @click="pause"
+                    icon="mdi-pause"
+                    aria-label="Pause animation"
+                  />
+                  <v-btn
+                    icon="mdi-shuffle"
+                    variant="tonal"
+                    color="secondary"
+                    @click="randomizeArray"
+                    :disabled="loadingAlgorithm"
+                    aria-label="Shuffle array"
+                  />
+                </div>
+                <div class="playback-controls">
+                  <v-btn
+                    icon="mdi-rewind"
+                    variant="tonal"
+                    color="secondary"
+                    @click="decreaseSpeed"
+                    :disabled="!steps.length || !canDecreaseSpeed"
+                    aria-label="Slow down playback"
+                  />
+                  <v-chip size="small" variant="tonal" color="secondary" class="playback-speed">
+                    {{ speedDisplay }}
+                  </v-chip>
+                  <v-btn
+                    icon="mdi-fast-forward"
+                    variant="tonal"
+                    color="secondary"
+                    @click="increaseSpeed"
+                    :disabled="!steps.length || !canIncreaseSpeed"
+                    aria-label="Speed up playback"
+                  />
+                </div>
+              </v-col>
+            </v-row>
+          </v-container>
         </template>
       </v-card-text>
     </v-card>
@@ -642,5 +733,77 @@ onBeforeUnmount(() => {
 .chip-row::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.2);
   border-radius: 999px;
+}
+
+.brace-context {
+  margin-top: 8px;
+  text-align: center;
+  color: rgb(var(--v-theme-on-surface));
+  opacity: 0.85;
+}
+
+.brace-context__label {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.viz-section {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.viz-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.viz-section__header--stacked {
+  flex-direction: column;
+  text-align: center;
+  gap: 6px;
+}
+
+.section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.section-title__icon {
+  color: rgba(255, 255, 255, 0.7);
+  cursor: help;
+  flex-shrink: 0;
+}
+
+.playback-row {
+  row-gap: 16px;
+}
+
+.playback-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.playback-primary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.playback-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.playback-speed {
+  justify-content: center;
+  min-width: 52px;
 }
 </style>
