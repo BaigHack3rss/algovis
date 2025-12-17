@@ -10,6 +10,51 @@ import '@mdi/font/css/materialdesignicons.css'
 // Components
 import App from './App.vue'
 
+const MATHJAX_SRC = 'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js'
+
+function getMathJaxConfig() {
+  return {
+    tex: {
+      inlineMath: [
+        ['\\(', '\\)'],
+        ['$', '$'],
+      ],
+      displayMath: [
+        ['\\[', '\\]'],
+        ['$$', '$$'],
+      ],
+      packages: {
+        '[+]': ['noerrors'],
+      },
+    },
+    options: {
+      skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
+    },
+  }
+}
+
+function loadMathJax(): Promise<void> {
+  if (typeof window === 'undefined') return Promise.resolve()
+  if ((window.MathJax as { startup?: unknown } | undefined)?.startup) {
+    return Promise.resolve()
+  }
+
+  window.MathJax = getMathJaxConfig()
+
+  return new Promise<void>((resolve, reject) => {
+    const script = document.createElement('script')
+    script.src = MATHJAX_SRC
+    script.async = true
+    script.onload = () => resolve()
+    script.onerror = (event) => reject(event)
+    document.head.appendChild(script)
+  }).catch((error) => {
+    console.error('Failed to load MathJax', error)
+  })
+}
+
+void loadMathJax()
+
 const vuetify = createVuetify({
   components,
   directives,

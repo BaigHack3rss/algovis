@@ -1,8 +1,20 @@
 <script setup lang="ts">
-import { defineAsyncComponent } from 'vue'
+import { defineAsyncComponent, nextTick, onMounted } from 'vue'
 import { sortingAlgorithmInfoList } from '@/core/sorting'
 
 const Popup = defineAsyncComponent(() => import('@/core/components/Popup.vue'))
+
+const formatComplexity = (label: string, expression: string) => `${label}: \\(${expression}\\)`
+
+const scheduleMathJax = () => {
+  void nextTick(() => {
+    window.MathJax?.typesetPromise?.()
+  })
+}
+
+onMounted(() => {
+  scheduleMathJax()
+})
 </script>
 
 <template>
@@ -33,8 +45,20 @@ const Popup = defineAsyncComponent(() => import('@/core/components/Popup.vue'))
               sm="12"
             >
               <v-card :title="algorithm.title" class="text-center">
-                <v-card-text class="text-body-2 text-center">
-                  {{ algorithm.info }}
+                <v-card-text class="text-body-2 text-center algo-card-text">
+                  <p class="algo-description">
+                    {{ algorithm.description }}
+                  </p>
+                  <div class="complexity-row">
+                    <span
+                      class="complexity-label"
+                      v-html="formatComplexity('Time', algorithm.timeComplexity)"
+                    />
+                    <span
+                      class="complexity-label"
+                      v-html="formatComplexity('Space', algorithm.spaceComplexity)"
+                    />
+                  </div>
                 </v-card-text>
                 <v-card-actions class="justify-center">
                   <Popup :algorithm-name="algorithm.title" :algorithm-loader="algorithm.loader" />
@@ -52,5 +76,30 @@ const Popup = defineAsyncComponent(() => import('@/core/components/Popup.vue'))
 h1,
 p {
   text-shadow: 2px 4px 8px rgba(0, 0, 0, 0.5);
+}
+
+.algo-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.algo-description {
+  margin: 0;
+}
+
+.complexity-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.complexity-label {
+  font-weight: 600;
+}
+
+.complexity-label mjx-container {
+  font-size: 0.95rem;
 }
 </style>

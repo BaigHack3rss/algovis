@@ -1,17 +1,23 @@
 <script setup lang="ts">
-import { ref, watch, computed, shallowRef, onBeforeUnmount } from 'vue'
+import { ref, watch, computed, shallowRef, onBeforeUnmount, nextTick, watchEffect } from 'vue'
+import type { CSSProperties } from 'vue'
+import StepBasedView from '@/core/components/StepBasedView.vue'
+import BarChartView from '@/core/components/BarChartView.vue'
 import type { SortOperation } from '@/core/interfaces/sortingTypes'
 import type { SortingAlgorithmConstructor, SortingAlgorithmLoader } from '@/core/sorting'
 
 defineOptions({
   name: 'AlgorithmPopup',
 })
+type VisualizationMode = 'step' | 'bar'
+
 const props = defineProps<{
   algorithmName: string
   algorithmLoader: SortingAlgorithmLoader
 }>()
 
 const open = ref(false)
+const activeView = ref<VisualizationMode>('bar')
 
 const ARRAY_LENGTH = 8
 const MIN_VALUE = 5
@@ -37,6 +43,27 @@ const OPERATION_COLOR_MAP: Record<string, string> = {
   base: 'base',
 }
 
+const TONE_COLOR_VAR: Record<string, string> = {
+  compare: '--v-theme-info',
+  swap: '--v-theme-warning',
+  write: '--v-theme-success',
+  insert: '--v-theme-primary',
+  partition: '--v-theme-secondary',
+  base: '--v-theme-surface-variant',
+  default: '--v-theme-accent',
+}
+
+const OPERATION_VERB_MAP: Record<string, string> = {
+  compare: 'Comparing',
+  swap: 'Swapping',
+  write: 'Writing',
+  merge: 'Merging',
+  insert: 'Inserting',
+  'partition-start': 'Partitioning',
+  'partition-end': 'Partitioning',
+  base: 'Preparing',
+}
+
 const operationTone = computed<string | null>(() => {
   const type = currentOperation.value?.type
   return type ? (OPERATION_COLOR_MAP[type] ?? 'default') : null
@@ -48,7 +75,7 @@ const operationClasses = computed(() => {
     array: null as string | null,
     range: null as string | null,
     pivot: null as string | null,
-    chip: 'operation-chip--default',
+    brace: 'subarray-brace--default',
   }
 
   if (!tone) return defaults
@@ -57,7 +84,7 @@ const operationClasses = computed(() => {
     array: `array-cell--op-${tone}`,
     range: `range-cell--op-${tone}`,
     pivot: `range-cell--pivot-${tone}`,
-    chip: `operation-chip--${tone}`,
+    brace: `subarray-brace--${tone}`,
   }
 })
 
@@ -115,6 +142,31 @@ const pivotIndex = computed<number | null>(() => {
 
 const rangeArray = computed(() => (arr.value.length ? arr.value : base.value))
 
+const displayBounds = computed<readonly [number, number] | null>(() => {
+  const values = rangeArray.value
+  if (!values.length) return null
+  const range = activeRange.value
+  if (!range) return [0, values.length - 1]
+  const start = Math.max(0, Math.min(range[0], values.length - 1))
+  const end = Math.max(start, Math.min(range[1], values.length - 1))
+  return [start, end]
+})
+
+const rangeEntries = computed(() => {
+  const values = rangeArray.value
+  const bounds = displayBounds.value
+  if (!bounds) return []
+  const [start, end] = bounds
+  return values.slice(start, end + 1).map((value, offset) => ({
+    value,
+    index: start + offset,
+  }))
+})
+
+const rangeGridStyle = computed<CSSProperties>(() => ({
+  gridTemplateColumns: `repeat(${Math.max(rangeEntries.value.length || 1, 1)}, minmax(0, 1fr))`,
+}))
+
 const currentDepth = computed<number | null>(() => {
   const depth = currentMeta.value?.depth
   return Number.isInteger(depth) ? (depth as number) : null
@@ -126,14 +178,131 @@ const subarrays = computed(() => {
   const baseSlices: [number, number][] =
     Array.isArray(slices) && slices.length ? slices : meta?.range ? [meta.range] : []
 
+  const bounds = displayBounds.value
+  if (!bounds) return []
+  const [start, end] = bounds
+
   return baseSlices
     .filter(([l, r]) => Number.isInteger(l) && Number.isInteger(r) && l >= 0 && r >= l)
-    .map(([l, r]) => ({
-      l,
-      r,
-      values: rangeArray.value.slice(l, Math.min(r + 1, rangeArray.value.length)),
-    }))
-    .filter(({ values }) => values.length > 0)
+    .map(([l, r]) => {
+      const clampedStart = Math.max(l, start)
+      const clampedEnd = Math.min(r, end)
+      if (clampedEnd < clampedStart) return null
+      return {
+        l: clampedStart - start,
+        r: clampedEnd - start,
+        values: rangeArray.value.slice(clampedStart, clampedEnd + 1),
+        label: `[${l}..${r}]`,
+      }
+    })
+    .filter((slice): slice is { l: number; r: number; values: number[]; label: string } => !!slice)
+})
+
+let braceTypesetPending = false
+
+function scheduleBraceTypeset() {
+  if (braceTypesetPending) return
+  braceTypesetPending = true
+  void nextTick(() => {
+    braceTypesetPending = false
+    window.MathJax?.typesetPromise?.()
+  })
+}
+
+watchEffect(() => {
+  if (!open.value) return
+  if (activeView.value !== 'step') return
+  if (!subarrays.value.length) return
+  scheduleBraceTypeset()
+})
+
+const TEX_ESCAPE_LOOKUP: Record<string, string> = {
+  '\\': '\\textbackslash{}',
+  '{': '\\{',
+  '}': '\\}',
+  '#': '\\#',
+  '%': '\\%',
+  '&': '\\&',
+  '$': '\\$',
+  '_': '\\_',
+  '^': '\\^{}',
+  '~': '\\textasciitilde{}',
+}
+
+const TEX_ESCAPE_PATTERN = /[\\{}#%&$_^~]/g
+
+function escapeForTeX(text: string): string {
+  return text.replace(TEX_ESCAPE_PATTERN, (char) => TEX_ESCAPE_LOOKUP[char] ?? char)
+}
+
+const HTML_ESCAPE_LOOKUP: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+}
+
+const HTML_ESCAPE_PATTERN = /[&<>"']/g
+
+function escapeHtml(text: string): string {
+  return text.replace(HTML_ESCAPE_PATTERN, (char) => HTML_ESCAPE_LOOKUP[char] ?? char)
+}
+
+function wrapInlineMath(content: string): string {
+  const trimmed = content.trim()
+  if (!trimmed) return ''
+  return `\\(${trimmed}\\)`
+}
+
+function formatConjunction(items: string[]): string {
+  if (!items.length) return ''
+  if (items.length === 1) return items[0] ?? ''
+  if (items.length === 2) return `${items[0]} and ${items[1]}`
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
+}
+
+const braceActionText = computed(() => {
+  const operation = currentOperation.value
+  if (!operation) return ''
+
+  const verb = OPERATION_VERB_MAP[operation.type] ?? 'Operating on'
+  const slices = subarrays.value
+
+  const describeSlices = () => {
+    if (!slices.length) return ''
+    const formatSlice = (slice: { label: string }, idx: number) => {
+      if (slices.length === 2) {
+        const labels = ['left', 'right']
+        const side = labels[idx] ?? `part ${idx + 1}`
+        return `${side} ${wrapInlineMath(escapeForTeX(slice.label))}`
+      }
+      return wrapInlineMath(escapeForTeX(slice.label))
+    }
+
+    if (slices.length === 1) {
+      const firstSlice = slices[0]
+      return firstSlice ? `${verb} ${formatSlice(firstSlice, 0)}` : verb
+    }
+
+    const formatted = slices.slice(0, 3).map((slice, idx) => formatSlice(slice, idx))
+    const suffix = slices.length > 3 ? '…' : ''
+    return `${verb} ${formatConjunction(formatted)}${suffix}`
+  }
+
+  const describeIndices = () => {
+    const indices = Array.isArray(operation.indices) ? operation.indices : []
+    if (!indices.length) return ''
+    const formatted = indices.slice(0, 3).map((idx) => wrapInlineMath(idx.toString()))
+    const suffix = indices.length > 3 ? '…' : ''
+    if (formatted.length === 1) {
+      return `${verb} index ${formatted[0]}${suffix}`
+    }
+    return `${verb} indices ${formatConjunction(formatted)}${suffix}`
+  }
+
+  const description = describeSlices() || describeIndices() || verb
+  return escapeHtml(description)
 })
 
 const showRangeSection = computed(() => {
@@ -141,14 +310,19 @@ const showRangeSection = computed(() => {
   return activeRange.value !== null || pivotIndex.value !== null
 })
 
-function isInActiveRange(index: number): boolean {
-  const range = activeRange.value
-  return !!range && index >= range[0] && index <= range[1]
-}
+const braceActionStyle = computed<CSSProperties>(() => {
+  const tone = operationTone.value ?? 'default'
+  const colorVar = TONE_COLOR_VAR[tone] ?? TONE_COLOR_VAR.default
+  return {
+    color: `rgb(var(${colorVar}))`,
+  }
+})
 
-function isPivotIndex(index: number): boolean {
-  return pivotIndex.value === index
-}
+watchEffect(() => {
+  if (!open.value) return
+  if (!braceActionText.value) return
+  scheduleBraceTypeset()
+})
 
 // Jump to an arbitrary step (scrub)
 function seek(next: number) {
@@ -332,7 +506,7 @@ onBeforeUnmount(() => {
     </template>
 
     <v-card>
-      <v-card-title class="py-2 py-sm-4">
+      <v-card-title class="py-4 py-sm-4 px-4 px-sm-6">
         <v-row no-gutters>
           <v-col cols="12">
             <v-row no-gutters align="center" justify="space-between">
@@ -348,35 +522,21 @@ onBeforeUnmount(() => {
           </v-col>
           <v-col cols="12" class="mt-2">
             <span class="text-h6 d-block">{{ algorithmName }}</span>
-            <v-row no-gutters align="center" class="mt-2">
-              <v-col cols="auto" class="mr-2 mb-1">
-                <v-chip variant="flat" color="primary" size="small">
-                  Step {{ Math.min(i, steps.length) }} / {{ steps.length }}
-                </v-chip>
-              </v-col>
-              <v-col v-if="currentOperation" cols="auto" class="mr-2 mb-1">
-                <v-chip
-                  variant="outlined"
-                  size="small"
-                  class="operation-chip"
-                  :class="operationClasses.chip"
-                >
-                  {{ currentOperation.type }}
-                </v-chip>
-              </v-col>
-              <v-col v-if="currentDepth !== null" cols="auto" class="mb-1">
-                <v-chip variant="outlined" color="info" size="small">
-                  Recursion Depth {{ currentDepth }}
-                </v-chip>
-              </v-col>
-            </v-row>
+            <div class="chip-row mt-2" role="group" aria-label="Algorithm status chips">
+              <v-chip variant="flat" color="primary" size="small">
+                Step {{ Math.min(i, steps.length) }} / {{ steps.length }}
+              </v-chip>
+              <v-chip v-if="currentDepth !== null" variant="outlined" color="info" size="small">
+                Recursion Depth {{ currentDepth }}
+              </v-chip>
+            </div>
           </v-col>
         </v-row>
       </v-card-title>
 
       <v-divider class="mx-4" />
 
-      <v-card-text class="pt-4 pt-sm-6 pb-2 px-4 px-sm-6">
+      <v-card-text class="pa-1">
         <v-alert v-if="loadError" type="error" variant="tonal" class="mb-4">
           Failed to load the algorithm module.
           <span v-if="loadErrorMessage" class="ml-1">{{ loadErrorMessage }}</span>
@@ -389,171 +549,66 @@ onBeforeUnmount(() => {
           class="mb-4"
         />
         <template v-else>
-          <v-container v-if="showRangeSection" class="viz-section" fluid tag="section">
-            <v-row class="viz-section__header" align="center" justify="space-between" no-gutters>
-              <v-col cols="auto">
-                <span class="text-subtitle-2">Active Range</span>
-              </v-col>
-              <v-col cols="auto">
-                <v-chip v-if="pivotIndex !== null" size="x-small" color="warning" variant="flat">
-                  Pivot @ {{ pivotIndex }}
-                </v-chip>
-              </v-col>
-            </v-row>
-            <div class="range-array">
-              <v-row class="range-grid" justify="center" align="center" dense>
-                <v-col cols="auto" v-for="(value, index) in rangeArray" :key="`range-${index}`">
-                  <div
-                    :class="[
-                      'range-cell',
-                      isInActiveRange(index) && 'range-cell--active',
-                      isInActiveRange(index) ? operationClasses.range : null,
-                      isPivotIndex(index) && 'range-cell--pivot',
-                      isPivotIndex(index) ? operationClasses.pivot : null,
-                    ]"
-                  >
-                    <span class="range-cell__index">{{ index }}</span>
-                    <span class="range-cell__value">{{ value }}</span>
-                  </div>
-                </v-col>
-              </v-row>
-            </div>
-          </v-container>
+          <v-tabs v-model="activeView" color="primary" density="comfortable" class="view-tabs">
+            <v-tab value="bar">Bar Chart View</v-tab>
+            <v-tab value="step">Step Based View</v-tab>
+          </v-tabs>
 
-          <v-container class="viz-section" fluid tag="section">
-            <v-row class="viz-section__header" align="center" justify="space-between" no-gutters>
-              <v-col cols="auto">
-                <span class="text-subtitle-2">Array State</span>
-              </v-col>
-              <v-col cols="auto">
-                <div class="array-controls">
-                  <span class="text-caption text-medium-emphasis">
-                    Highlighted indices are active
-                  </span>
-                  <v-btn
-                    size="x-small"
-                    variant="tonal"
-                    color="secondary"
-                    :disabled="loadingAlgorithm"
-                    @click="randomizeArray"
-                  >
-                    Randomize
-                  </v-btn>
-                </div>
-              </v-col>
-            </v-row>
-            <v-row class="array-grid" justify="center" dense>
-              <v-col cols="auto" v-for="(val, idx) in arr" :key="idx">
-                <div
-                  class="array-cell"
-                  :class="[
-                    active.includes(idx) ? 'array-cell--active' : 'array-cell--idle',
-                    active.includes(idx) ? operationClasses.array : null,
-                  ]"
-                >
-                  {{ val }}
-                </div>
-              </v-col>
-            </v-row>
-          </v-container>
-
-          <v-container v-if="subarrays.length" class="viz-section" fluid tag="section">
-            <v-row class="viz-section__header" align="center" justify="space-between" no-gutters>
-              <v-col cols="auto">
-                <span class="text-subtitle-2">Subarrays</span>
-              </v-col>
-              <v-col cols="auto">
-                <span class="text-caption text-medium-emphasis">
-                  Showing slices involved in the current operation
-                </span>
-              </v-col>
-            </v-row>
-            <v-row class="subarray-list" justify="center" dense>
-              <v-col
-                cols="12"
-                md="auto"
-                v-for="(slice, sliceIndex) in subarrays"
-                :key="`slice-${sliceIndex}`"
-              >
-                <div class="subarray-chip">
-                  <span class="subarray-chip__label">[{{ slice.l }}..{{ slice.r }}]</span>
-                  <v-row class="subarray-chip__values" dense>
-                    <v-col
-                      cols="auto"
-                      v-for="(value, valIndex) in slice.values"
-                      :key="`slice-${sliceIndex}-${valIndex}`"
-                    >
-                      <span class="subarray-chip__value">
-                        {{ value }}
-                      </span>
-                    </v-col>
-                  </v-row>
-                </div>
-              </v-col>
-            </v-row>
-          </v-container>
-
-          <v-container class="viz-section" fluid tag="section">
-            <v-row class="viz-section__header" align="center" justify="space-between" no-gutters>
-              <v-col cols="auto">
-                <span class="text-subtitle-2">Playback</span>
-              </v-col>
-              <v-col cols="auto">
-                <span class="text-caption text-medium-emphasis">Step controls</span>
-              </v-col>
-            </v-row>
-            <v-row class="mt-4" align="center" justify="center" no-gutters>
-              <v-col cols="12">
-                <v-slider
-                  :min="0"
-                  :max="steps.length"
-                  step="1"
-                  :model-value="i"
-                  @update:model-value="seek"
-                  thumb-label
-                  :disabled="!steps.length"
-                />
-              </v-col>
-              <v-col cols="auto" class="playback-actions">
-                <v-btn
-                  v-if="!playing"
-                  color="primary"
-                  @click="play"
-                  :disabled="!steps.length"
-                  :icon="finished ? 'mdi-replay' : 'mdi-play'"
-                  :aria-label="finished ? 'Replay animation' : 'Play animation'"
-                />
-                <v-btn
-                  v-else
-                  color="warning"
-                  @click="pause"
-                  icon="mdi-pause"
-                  aria-label="Pause animation"
-                />
-                                <div class="playback-controls">
-                  <v-btn
-                    icon="mdi-rewind"
-                    variant="tonal"
-                    color="secondary"
-                    @click="decreaseSpeed"
-                    :disabled="!steps.length || !canDecreaseSpeed"
-                    aria-label="Slow down playback"
-                  />
-                  <v-chip size="small" variant="tonal" color="secondary" class="playback-speed">
-                    {{ speedDisplay }}
-                  </v-chip>
-                  <v-btn
-                    icon="mdi-fast-forward"
-                    variant="tonal"
-                    color="secondary"
-                    @click="increaseSpeed"
-                    :disabled="!steps.length || !canIncreaseSpeed"
-                    aria-label="Speed up playback"
-                  />
-                </div>
-              </v-col>
-            </v-row>
-          </v-container>
+          <v-window v-model="activeView" class="mt-4">
+            <v-window-item value="bar">
+              <BarChartView
+                :arr="arr"
+                :active-indices="active"
+                :pivot-index="pivotIndex"
+                :operation-tone="operationTone"
+                :brace-action-text="braceActionText"
+                :brace-action-style="braceActionStyle"
+                :loading-algorithm="loadingAlgorithm"
+                :steps-length="steps.length"
+                :current-step-index="i"
+                :playing="playing"
+                :finished="finished"
+                :speed-display="speedDisplay"
+                :can-decrease-speed="canDecreaseSpeed"
+                :can-increase-speed="canIncreaseSpeed"
+                @randomize="randomizeArray"
+                @seek="seek"
+                @play="play"
+                @pause="pause"
+                @increase-speed="increaseSpeed"
+                @decrease-speed="decreaseSpeed"
+              />
+            </v-window-item>
+            <v-window-item value="step">
+              <StepBasedView
+                :show-range-section="showRangeSection"
+                :subarrays="subarrays"
+                :pivot-index="pivotIndex"
+                :brace-action-text="braceActionText"
+                :brace-action-style="braceActionStyle"
+                :range-grid-style="rangeGridStyle"
+                :range-entries="rangeEntries"
+                :active-range="activeRange"
+                :operation-classes="operationClasses"
+                :arr="arr"
+                :active-indices="active"
+                :loading-algorithm="loadingAlgorithm"
+                :steps-length="steps.length"
+                :current-step-index="i"
+                :playing="playing"
+                :finished="finished"
+                :speed-display="speedDisplay"
+                :can-decrease-speed="canDecreaseSpeed"
+                :can-increase-speed="canIncreaseSpeed"
+                @randomize="randomizeArray"
+                @seek="seek"
+                @play="play"
+                @pause="pause"
+                @increase-speed="increaseSpeed"
+                @decrease-speed="decreaseSpeed"
+              />
+            </v-window-item>
+          </v-window>
         </template>
       </v-card-text>
     </v-card>
@@ -561,251 +616,31 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.viz-section {
-  margin-bottom: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.view-tabs {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.viz-section__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.range-array {
-  border-radius: 12px;
-  padding: 10px;
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.range-cell {
-  position: relative;
-  min-width: 46px;
-  padding: 6px 8px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.08);
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  transition:
-    background-color 0.2s ease,
-    transform 0.2s ease;
-}
-
-.range-cell__index {
-  font-size: 0.65rem;
-  opacity: 0.6;
-}
-
-.range-cell__value {
+.view-tabs :deep(.v-tab) {
   font-size: 0.85rem;
-  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
-.range-cell--active {
-  background: rgba(var(--v-theme-primary), 0.22);
-  transform: translateY(-2px);
-}
-
-.range-cell--pivot {
-  outline: 2px solid rgb(var(--v-theme-warning));
-  outline-offset: 2px;
-}
-
-.range-cell--active.range-cell--op-compare {
-  background: rgba(var(--v-theme-info), 0.2);
-}
-
-.range-cell--active.range-cell--op-swap {
-  background: rgba(var(--v-theme-warning), 0.2);
-}
-
-.range-cell--active.range-cell--op-write {
-  background: rgba(var(--v-theme-success), 0.2);
-}
-
-.range-cell--active.range-cell--op-insert {
-  background: rgba(var(--v-theme-primary), 0.2);
-}
-
-.range-cell--active.range-cell--op-partition {
-  background: rgba(var(--v-theme-secondary), 0.2);
-}
-
-.range-cell--active.range-cell--op-base {
-  background: rgba(var(--v-theme-surface-variant), 0.24);
-}
-
-.range-cell--active.range-cell--op-default {
-  background: rgba(var(--v-theme-accent), 0.22);
-}
-
-.range-cell--pivot.range-cell--pivot-compare {
-  outline-color: rgb(var(--v-theme-info));
-}
-
-.range-cell--pivot.range-cell--pivot-swap {
-  outline-color: rgb(var(--v-theme-warning));
-}
-
-.range-cell--pivot.range-cell--pivot-write {
-  outline-color: rgb(var(--v-theme-success));
-}
-
-.range-cell--pivot.range-cell--pivot-insert {
-  outline-color: rgb(var(--v-theme-primary));
-}
-
-.range-cell--pivot.range-cell--pivot-partition {
-  outline-color: rgb(var(--v-theme-secondary));
-}
-
-.range-cell--pivot.range-cell--pivot-base {
-  outline-color: rgb(var(--v-theme-surface-variant));
-}
-
-.range-cell--pivot.range-cell--pivot-default {
-  outline-color: rgb(var(--v-theme-accent));
-}
-
-.array-cell {
-  min-width: 40px;
-  padding: 6px 8px;
-  border-radius: 10px;
-  text-align: center;
-  font-weight: 600;
-  transition:
-    transform 0.2s ease,
-    background-color 0.2s ease;
-}
-
-.array-cell--idle {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.array-cell--active {
-  background: rgba(var(--v-theme-accent), 0.25);
-  color: rgb(var(--v-theme-on-accent));
-  transform: translateY(-2px);
-}
-
-.array-cell--active.array-cell--op-compare {
-  background: rgba(var(--v-theme-info), 0.28);
-  color: rgb(var(--v-theme-on-info));
-}
-
-.array-cell--active.array-cell--op-swap {
-  background: rgba(var(--v-theme-warning), 0.28);
-  color: rgb(var(--v-theme-on-warning));
-}
-
-.array-cell--active.array-cell--op-write {
-  background: rgba(var(--v-theme-success), 0.28);
-  color: rgb(var(--v-theme-on-success));
-}
-
-.array-cell--active.array-cell--op-insert {
-  background: rgba(var(--v-theme-primary), 0.28);
-  color: rgb(var(--v-theme-on-primary));
-}
-
-.array-cell--active.array-cell--op-partition {
-  background: rgba(var(--v-theme-secondary), 0.28);
-  color: rgb(var(--v-theme-on-secondary));
-}
-
-.array-cell--active.array-cell--op-base {
-  background: rgba(var(--v-theme-surface-variant), 0.3);
-  color: rgb(var(--v-theme-on-surface-variant));
-}
-
-.array-cell--active.array-cell--op-default {
-  background: rgba(var(--v-theme-accent), 0.3);
-  color: rgb(var(--v-theme-on-accent));
-}
-
-.operation-chip {
-  border-color: currentColor !important;
-}
-
-.operation-chip--compare {
-  color: rgb(var(--v-theme-info));
-}
-
-.operation-chip--swap {
-  color: rgb(var(--v-theme-warning));
-}
-
-.operation-chip--write {
-  color: rgb(var(--v-theme-success));
-}
-
-.operation-chip--insert {
-  color: rgb(var(--v-theme-primary));
-}
-
-.operation-chip--partition {
-  color: rgb(var(--v-theme-secondary));
-}
-
-.operation-chip--base {
-  color: rgb(var(--v-theme-surface-variant));
-}
-
-.operation-chip--default {
-  color: rgb(var(--v-theme-accent));
-}
-
-.subarray-chip {
+.chip-row {
   display: flex;
-  align-items: center;
+  flex-wrap: nowrap;
   gap: 8px;
-  padding: 6px 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  margin-bottom: -4px;
+  scrollbar-gutter: stable both-edges;
+}
+
+.chip-row::-webkit-scrollbar {
+  height: 4px;
+}
+
+.chip-row::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.subarray-chip__label {
-  font-size: 0.75rem;
-  opacity: 0.7;
-}
-
-.subarray-chip__value {
-  padding: 3px 6px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-
-.playback-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.playback-speed {
-  justify-content: center;
-  min-width: 52px;
-}
-
-.playback-actions {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-  justify-content: center;
-}
-
-.array-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
 }
 </style>

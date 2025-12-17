@@ -14,7 +14,9 @@ export type SortingAlgorithmLoader = () => Promise<SortingAlgorithmConstructor>
 export interface SortingAlgorithmInfo {
   key: SortingAlgorithmKey
   title: string
-  info: string
+  description: string
+  timeComplexity: string
+  spaceComplexity: string
   loader: SortingAlgorithmLoader
 }
 
@@ -22,36 +24,44 @@ const algorithmInfo: SortingAlgorithmInfo[] = [
   {
     key: 'bubble',
     title: 'Bubble Sort',
-    info: `Repeatedly swaps adjacent elements if they are in the wrong order.
-Time: O(n^2) | Space: O(1)`,
+    description: 'Repeatedly swaps adjacent elements if they are in the wrong order.',
+    timeComplexity: 'O(n^2)',
+    spaceComplexity: 'O(1)',
     loader: async () => (await import('./BubbleSort')).BubbleSort,
   },
   {
     key: 'insertion',
     title: 'Insertion Sort',
-    info: `Builds the final sorted array one item at a time by comparing and inserting elements.
-Time: O(n^2) | Space: O(1)`,
+    description:
+      'Builds the final sorted array one item at a time by comparing and inserting elements.',
+    timeComplexity: 'O(n^2)',
+    spaceComplexity: 'O(1)',
     loader: async () => (await import('./InsertionSort')).InsertionSort,
   },
   {
     key: 'merge',
     title: 'Merge Sort',
-    info: `Divides the array into halves, sorts them and merges them back together.
-Time: O(n log n) | Space: O(n)`,
+    description: 'Divides the array into halves, sorts them and merges them back together.',
+    timeComplexity: 'O(n \\log n)',
+    spaceComplexity: 'O(n)',
     loader: async () => (await import('./MergeSort')).MergeSort,
   },
   {
     key: 'quick',
     title: 'Quick Sort',
-    info: `Divides the array into smaller sub-arrays around a pivot, sorting them recursively.
-Time: O(n log n) | Space: O(log n)`,
+    description:
+      'Divides the array into smaller sub-arrays around a pivot, sorting them recursively.',
+    timeComplexity: 'O(n \\log n)',
+    spaceComplexity: 'O(\\log n)',
     loader: async () => (await import('./QuickSort')).QuickSort,
   },
   {
     key: 'selection',
     title: 'Selection Sort',
-    info: `Selects the smallest (or largest) element from the unsorted portion and moves it to the sorted portion.
-Time: O(n^2) | Space: O(1)`,
+    description:
+      'Selects the smallest (or largest) element from the unsorted portion and moves it to the sorted portion.',
+    timeComplexity: 'O(n^2)',
+    spaceComplexity: 'O(1)',
     loader: async () => (await import('./SelectionSort')).SelectionSort,
   },
 ]
